@@ -1,0 +1,51 @@
+services:
+  databricks-sim:
+    image: deltaio/delta-docker:4.0.0
+    container_name: databricks-sim
+    stdin_open: true
+    tty: true
+    ports:
+      - "8888-8889:8888-8889"
+      - "4040:4040"
+    volumes:
+      - ./notebooks:/opt/spark/work-dir/notebooks
+      - ./datasets:/opt/spark/work-dir/datasets
+      - ./warehouse:/opt/spark/work-dir/warehouse
+      - ./tools:/opt/spark/work-dir/tools
+
+  postgres:
+    image: postgres:16
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  airflow:
+    image: apache/airflow:3.0.2
+    container_name: airflow
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_UID: 50000
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./notebooks:/opt/airflow/notebooks
+      - ./datasets:/opt/airflow/datasets
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow standalone
+      "
+
+volumes:
+  postgres_data:

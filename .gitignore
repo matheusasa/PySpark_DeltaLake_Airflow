@@ -1,0 +1,6 @@
+.venv/
+.claude/
+datasets/*.csv
+notebooks/.ipynb_checkpoints/
+tools/__pycache__/
+warehouse/*
