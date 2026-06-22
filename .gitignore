@@ -1,6 +1,11 @@
 .venv/
 .claude/
 datasets/*.csv
+datasets/_concluidos_*.txt
 notebooks/.ipynb_checkpoints/
 tools/__pycache__/
 warehouse/*
+*/__pycache__
+airflow/dags/__pycache__
+airflow/logs/*
+grafana_data/

@@ -1,0 +1,207 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Duracao por Camada",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "pipeline_camada_duration_seconds",
+          "legendFormat": "{{camada}} - {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "title": "Duracao por Tabela e Fase",
+      "type": "heatmap",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "pipeline_fase_duration_seconds",
+          "legendFormat": "{{camada}}/{{tabela}}/{{fase}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "cellGap": 2,
+        "cellRadius": 0,
+        "cellValues": {},
+        "color": { "exponent": 0.5, "fill": "dark-orange", "mode": "spectrum", "reverse": false, "scale": "exponential", "scheme": "Oranges", "steps": 10 },
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "yAxis": { "axisPlacement": "left", "reverse": false }
+      },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "title": "Volume por Camada - Ultimas Runs",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (camada, run_id) (pipeline_fase_row_count{fase=\"escrita\", run_id=~\".+\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [{ "field": "run_id", "desc": true }]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "run_id": 0, "camada": 1, "Value": 2 },
+            "renameByName": { "run_id": "Run", "camada": "Camada", "Value": "Volume" }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": { "align": "auto", "inspect": false },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 500000 },
+              { "color": "red", "value": 2000000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "showHeader": true },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "title": "Status das Ultimas Runs",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "pipeline_last_run_status",
+          "legendFormat": "{{camada}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "Sucesso", "color": "green" }, "1": { "text": "Erro", "color": "red" } } }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "title": "SLA Breaches (24h)",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "pipeline_last_run_status{camada=\"bronze\"} + pipeline_last_run_status{camada=\"silver\"} + pipeline_last_run_status{camada=\"gold\"}",
+          "legendFormat": "breaches",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 10,
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "title": "Tendencia por Fase",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 14 },
+      "targets": [
+        {
+          "expr": "pipeline_fase_duration_seconds{camada=\"bronze\"}",
+          "legendFormat": "{{tabela}}/{{fase}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["pipeline", "ecommerce", "observabilidade"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "selected": true, "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Pipeline E-commerce - Observabilidade",
+  "uid": "pipeline-ecommerce-obs",
+  "version": 1
+}

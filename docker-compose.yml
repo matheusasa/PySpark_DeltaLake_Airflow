@@ -12,6 +12,8 @@ services:
       - ./datasets:/opt/spark/work-dir/datasets
       - ./warehouse:/opt/spark/work-dir/warehouse
       - ./tools:/opt/spark/work-dir/tools
+    networks:
+      - pipeline-net
 
   postgres:
     image: postgres:16
@@ -22,6 +24,8 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pipeline-net
 
   airflow:
     image: apache/airflow:3.0.2
@@ -34,12 +38,16 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__PROMETHEUS_EXPORTER_PORT: 9092
       AIRFLOW_UID: 50000
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
       - ./airflow/requirements.txt:/opt/airflow/requirements.txt
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./notebooks:/opt/airflow/notebooks
       - ./datasets:/opt/airflow/datasets
     command: >
@@ -48,6 +56,53 @@ services:
       airflow db migrate &&
       airflow standalone
       "
+    networks:
+      - pipeline-net
+
+  pushgateway:
+    image: prom/pushgateway
+    container_name: pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - pipeline-net
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - pushgateway
+    networks:
+      - pipeline-net
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    depends_on:
+      - prometheus
+    networks:
+      - pipeline-net
+
+networks:
+  pipeline-net:
+    driver: bridge
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:

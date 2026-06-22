@@ -1,93 +1,84 @@
-"""DAG Airflow para gerar datasets sinteticos do pipeline E-commerce."""
-import sys
-from pathlib import Path
+"""DAG Airflow para executar o pipeline Bronze/Silver/Gold."""
+import json
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 
-# Permite importar o modulo datasets/gerar_dados.py
-sys.path.insert(0, "/opt/airflow/datasets")
-from gerar_dados import (
-    gerar_fornecedores,
-    gerar_clientes,
-    gerar_cupons,
-    gerar_produtos,
-    gerar_vendas_fretes_pagamentos,
-    gerar_avaliacoes,
-)
+SPARK_CONTAINER = "databricks-sim"
 
-OUTPUT_DIR = str(Path("/opt/airflow/datasets"))
+
+def on_failure_callback(context):
+    print(json.dumps({
+        "timestamp": datetime.utcnow().isoformat(),
+        "level": "ERROR",
+        "dag_id": context.get("dag").dag_id,
+        "task_id": context.get("task").task_id,
+        "execution_date": str(context.get("execution_date")),
+        "exception": str(context.get("exception")),
+        "status": "erro",
+    }))
+
+
+def read_metrics_from_spark(task_id, camada, **kwargs):
+    ti = kwargs['ti']
+    exit_code = ti.xcom_pull(task_ids=task_id)
+    if exit_code == 0:
+        metrics = {"camada": camada, "status": "sucesso"}
+    else:
+        metrics = {"camada": camada, "status": "erro"}
+    ti.xcom_push(key=f"metrics_{camada}", value=metrics)
+
 
 default_args = {
     "owner": "airflow",
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
+    "on_failure_callback": on_failure_callback,
 }
 
 with DAG(
-    dag_id="gerar_dados_ecommerce",
+    dag_id="pipeline_ecommerce",
     default_args=default_args,
     start_date=datetime(2024, 1, 1),
     schedule=None,
     catchup=False,
-    tags=["datagen", "ecommerce"],
-    description="Gera datasets sinteticos para o pipeline E-commerce (Bronze/Silver/Gold)",
+    tags=["ecommerce", "pipeline"],
+    description="Executa o pipeline Bronze -> Silver -> Gold (datasets devem ser gerados previamente via tools/run_datagen.py)",
 ) as dag:
 
-    t_fornecedores = PythonOperator(
-        task_id="gerar_fornecedores",
-        python_callable=gerar_fornecedores,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_bronze = BashOperator(
+        task_id="bronze_ingestao",
+        bash_command=f"docker exec {SPARK_CONTAINER} bash -c 'PYTHONPATH=/opt/spark/work-dir/tools spark-submit --packages io.delta:delta-spark_2.13:4.0.0 /opt/spark/work-dir/tools/run_bronze.py'",
     )
 
-    t_clientes = PythonOperator(
-        task_id="gerar_clientes",
-        python_callable=gerar_clientes,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_silver = BashOperator(
+        task_id="silver_transformacao",
+        bash_command=f"docker exec {SPARK_CONTAINER} bash -c 'PYTHONPATH=/opt/spark/work-dir/tools spark-submit --packages io.delta:delta-spark_2.13:4.0.0 /opt/spark/work-dir/tools/run_silver.py'",
     )
 
-    t_cupons = PythonOperator(
-        task_id="gerar_cupons",
-        python_callable=gerar_cupons,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_gold = BashOperator(
+        task_id="gold_agregacao",
+        bash_command=f"docker exec {SPARK_CONTAINER} bash -c 'PYTHONPATH=/opt/spark/work-dir/tools spark-submit --packages io.delta:delta-spark_2.13:4.0.0 /opt/spark/work-dir/tools/run_gold.py'",
     )
 
-    t_produtos = PythonOperator(
-        task_id="gerar_produtos",
-        python_callable=gerar_produtos,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_bronze_metrics = PythonOperator(
+        task_id="bronze_metrics",
+        python_callable=read_metrics_from_spark,
+        op_kwargs={"task_id": "bronze_ingestao", "camada": "bronze"},
     )
 
-    t_vendas = PythonOperator(
-        task_id="gerar_vendas_fretes_pagamentos",
-        python_callable=gerar_vendas_fretes_pagamentos,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_silver_metrics = PythonOperator(
+        task_id="silver_metrics",
+        python_callable=read_metrics_from_spark,
+        op_kwargs={"task_id": "silver_transformacao", "camada": "silver"},
     )
 
-    t_avaliacoes = PythonOperator(
-        task_id="gerar_avaliacoes",
-        python_callable=gerar_avaliacoes,
-        op_kwargs={
-            "output_dir": OUTPUT_DIR,
-            "run_timestamp": "{{ ts_nodash }}",
-        },
+    t_gold_metrics = PythonOperator(
+        task_id="gold_metrics",
+        python_callable=read_metrics_from_spark,
+        op_kwargs={"task_id": "gold_agregacao", "camada": "gold"},
     )
 
-    # Dependencias: dimensoes em paralelo -> vendas -> avaliacoes
-    [t_fornecedores, t_clientes, t_cupons, t_produtos] >> t_vendas >> t_avaliacoes
+    t_bronze >> t_bronze_metrics >> t_silver >> t_silver_metrics >> t_gold >> t_gold_metrics
